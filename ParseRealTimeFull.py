@@ -5,39 +5,25 @@ import statistics
 import re
 import os
 
+import ctypes
+
 from PIL import Image
 
 # Set the filename and open the file
-# filename = os.getenv('LOCALAPPDATA') + '\Warframe\EE.log'
-filename = os.getenv('LOCALAPPDATA') + '\Warframe\EE.log'
+filename = os.getenv('LOCALAPPDATA') + r'\Warframe\EE.log'
 file = None
 fileRollbackPosition = None
 fileRollbackPositionSmall = None
 
-# System Settings
-customtkinter.set_appearance_mode("Dark")
-customtkinter.set_default_color_theme("blue")
-customtkinter.deactivate_automatic_dpi_awareness()
+redRunBreakpoint = 405
+pinkRunBreakpoint = 410
 
-# App window - Size and Title
-app = customtkinter.CTk()
-app.geometry("960x960")
-app.title("FATE")
-app.iconbitmap("C:/Users/Vlados/Downloads/randomicon.ico")
+zeroMsLimbLoop = 17.186
+zeroMsCapshotTime = 48.100
+finalizeTransitionBreakpoint = 0.350
+nighttimeBreakpoint = 3.610
 
-fullSetFrame = customtkinter.CTkFrame(app, width = app._current_width - 20, height = app._current_height/2 - 10)
-fullSetFrame.pack_propagate(0)
-fullSetFrame.place(relx = .5, rely = .35, anchor = tkinter.N)
-
-globalOverviewFrame = customtkinter.CTkFrame(app, width = app._current_width - 20, height = app._current_height/8 - 10)
-globalOverviewFrame.pack_propagate(0)
-globalOverviewFrame.place(relx = .5, rely = .85, anchor = tkinter.N)
-
-textColor = "light gray"
-redAverageColor = "#EB532A"
-pinkAverageColor = "#EC87F8"
-purpleAverageColor = "#B28DFB"
-
+# ui constants
 columnRelValues = [0.01, 0.2, 0.34, 0.6, 0.83]
 lineRelValues = [0, 0.06, 0.14, 0.20, 0.34, 0.40, 0.48, 0.54, 0.70, 0.76, 0.84, 0.90]
 limbSpaceToPrevious = .08
@@ -52,159 +38,48 @@ limbBreakpointInput2X = .70
 limbBreakpointInput3X = .76
 limbBreakpointInputY = .28
 
-# Various miscelaneous variables and values
+textColor = "light gray"
+redAverageColor = "#EB532A"
+pinkAverageColor = "#EC87F8"
+purpleAverageColor = "#B28DFB"
+
+#ui empty objects
+restartParsingButton = None
+stopParsingButton = None
+
+#parsing constants
 stopParsingBool = False
 sleepBetweenCalls = 1000
-# sleepBetweenCalls = 10
 
-currentSetNr = 0
+fullNight = None
 currentSet = None
-
-redRunBreakpoint = 405
-pinkRunBreakpoint = 410
-
-zeroMsLimbLoop = 17.186
-zeroMsCapshotTime = 48.100
+currentSetNr = 0
+currentSetShown = 0
 currentLimb = 0
-finalizeTransitionBreakpoint = 0.350
-nighttimeBreakpoint = 3.610
 
-limbColor1Breakpoint = 0
-limbColor2Breakpoint = 0
-limbColor3Breakpoint = 0
+searchHostEntering = "EidolonMP.lua: Host entering plains with MissionInfo:"
+searchFinalizeTransition = "EidolonMP.lua: EIDOLONMP: Finalize Eidolon transition"
+searchItsNightime = "TeralystEncounter.lua: It's nighttime!"
 
-# Clear limb times. The rest gets cleared on its own for some reason
-def clearLimbTimes():
-    terryLimb1Display.configure(text = "00")
-    terryLimb2Display.configure(text = "")
-    terryLimb3Display.configure(text = "")
-    
-    garryLimb1Display.configure(text = "00")
-    garryLimb2Display.configure(text = "")
-    garryLimb3Display.configure(text = "")
-    garryLimb4Display.configure(text = "")
-    garryLimb5Display.configure(text = "")
-    
-    harryLimb1Display.configure(text = "00")
-    harryLimb2Display.configure(text = "")
-    harryLimb3Display.configure(text = "")
-    harryLimb4Display.configure(text = "")
-    harryLimb5Display.configure(text = "")
+searchEidoCaptured = "TeralystAvatarScript.lua: Teralyst Captured"
+searchEidoKilled = "TeralystAvatarScript.lua: Teralyst Killed"
 
-def clearCurrentSet():
-    clearLimbTimes()
+searchTeralystSpawned = "TeralystEncounter.lua: Teralyst spawned"
+searchTeralystNotSpawning = ["TeralystEncounter.lua: Teralyst didn't spawn, but should have", "TeralystEncounter.lua: Couldn't find any teralyst spawns, so not spawning one."]
+searchSongComplete = "TeralystAvatarScript.lua: Swan Song Complete"
+searchWeakpointDestroyed = "TeralystAvatarScript.lua: Weakpoint Destroyed"
 
-    terryFirstLimbBreakTimeDisplay.configure(text = "??")
-    terryLastLimbBreakTimeDisplay.configure(text = "??")
-    terryCapshotDisplay.configure(text = "??")
-    terryCapshotTimeDisplay.configure(text = "??")
-    terryLimbMedianDisplay.configure(text = "??")
-    finalizeTimeDisplay.configure(text = "??")
-    nighttimeTimeDisplay.configure(text = "??")
-    
-    garryWaterLimbBreakTimeDisplay.configure(text = "??")
-    garryLastLimbBreakTimeDisplay.configure(text = "??")
-    garryCapshotDisplay.configure(text = "??")
-    garryLimbMedianDisplay.configure(text = "??")
-    garryShrineTimeDisplay.configure(text = "??")
-    garryShardInsertsDisplay.configure(text = "??")
+searchWaterEidoSpawn = "Eidolon spawning SUCCESS"
 
-    harryWaterLimbBreakTimeDisplay.configure(text = "??")
-    harryLastLimbBreakTimeDisplay.configure(text = "??")
-    harryCapshotDisplay.configure(text = "??")
-    harryLimbMedianDisplay.configure(text = "??")
-    harryShrineTimeDisplay.configure(text = "??")
-    harryShardInsertsDisplay.configure(text = "??")
+searchLootDrop = "SnapPickupToGround.lua: Snapping pickup to ground (DefaultArcanePickup)"
+searchShrineEnabled = "TeralystEncounter.lua: Shrine enabled"
+searchShardOne = "TeralystEncounter.lua: A shard has been put in the Eidolon Shrine. Shards Consumed = 1"
+searchShardTwo = "TeralystEncounter.lua: A shard has been put in the Eidolon Shrine. Shards Consumed = 2"
 
-def clearGlobalStat():
-    globalRunAvgDisplay.configure(text = "??")
-    globalCapshotMedianDisplay.configure(text = "??")
-    globalLimbMedianDisplay.configure(text = "??")
-    globalWaterMedianDisplay.configure(text = "??")
+searchHostUnload = "EidolonMP.lua: EIDOLONMP: Level fully destroyed"
 
-
-def displayTerry(setToDisplay):
-    clearLimbTimes()
-
-    finalizeTimeDisplay.configure(text = setToDisplay.loadIn.displayFinalize)
-    nighttimeTimeDisplay.configure(text = setToDisplay.loadIn.displayItsNightitme)
-
-    if float(setToDisplay.loadIn.displayFinalize) == 0:
-        finalizeTimeDisplay.configure(text_color = "white")
-    elif float(setToDisplay.loadIn.displayFinalize) < finalizeTransitionBreakpoint:
-        finalizeTimeDisplay.configure(text_color = "red")
-    else:
-        finalizeTimeDisplay.configure(text_color = "white")
-
-    if float(setToDisplay.loadIn.displayItsNightitme) == 0:
-        nighttimeTimeDisplay.configure(text_color = "white")
-    elif float(setToDisplay.loadIn.displayItsNightitme) > nighttimeBreakpoint:
-        nighttimeTimeDisplay.configure(text_color = "red")
-    else:
-        nighttimeTimeDisplay.configure(text_color = "white")
-
-    firstLimbText = str(setToDisplay.terry.displayFirstLimb) + " [" + str(setToDisplay.terry.displayTimeToVuln) + "]"
-    terryFirstLimbBreakTimeDisplay.configure(text = firstLimbText)
-
-    terryCapshotDisplay.configure(text = setToDisplay.terry.displayCapshot)
-    terryCapshotTimeDisplay.configure(text = setToDisplay.terry.displayCapshotRealtime)
-    terryLastLimbBreakTimeDisplay.configure(text = setToDisplay.terry.displayLastLimbTime)
-
-    for i in range(0, len(setToDisplay.terry.limbsForMedian)):
-        setToDisplay.terry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.terry.limbsForMedian[i]))
-      
-    terryLimbMedianDisplay.configure(text = setToDisplay.terry.displayMedian)
-
-def displayGarry(setToDisplay):
-    garryShrineTimeDisplay.configure(text = setToDisplay.garry.displayShrineTime)
-
-    if setToDisplay.garry.displayShardTwoTime != 0:
-        shardTimes = str(setToDisplay.garry.displayShardOneTime) + "   " + str(setToDisplay.garry.displayShardTwoTime)
-    else:
-        shardTimes = str(setToDisplay.garry.displayShardOneTime)
-
-    garryShardInsertsDisplay.configure(text = shardTimes)
-
-    waterTime = str(setToDisplay.garry.displayWaterTime) + " + " + str(setToDisplay.garry.displayspawnDelay)
-    garryWaterLimbBreakTimeDisplay.configure(text = waterTime)
-
-    garryCapshotDisplay.configure(text = setToDisplay.garry.displayCapshot)
-    garryLastLimbBreakTimeDisplay.configure(text = setToDisplay.garry.displayLastLimbTime)
-    garryLimbMedianDisplay.configure(text = setToDisplay.garry.displayMedian)
-
-    for i in range(0, len(setToDisplay.garry.limbsForMedian)):
-        setToDisplay.garry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.garry.limbsForMedian[i]))
-
-def displayHarry(setToDisplay):
-    harryShrineTimeDisplay.configure(text = setToDisplay.harry.displayShrineTime)
-
-    if setToDisplay.harry.displayShardTwoTime != 0:
-        shardTimes = str(setToDisplay.harry.displayShardOneTime) + "   " + str(setToDisplay.harry.displayShardTwoTime)
-    else:
-        shardTimes = str(setToDisplay.harry.displayShardOneTime)
-
-    harryShardInsertsDisplay.configure(text = shardTimes)
-
-    waterTime = str(setToDisplay.harry.displayWaterTime) + " + " + str(setToDisplay.harry.displayspawnDelay)
-    harryWaterLimbBreakTimeDisplay.configure(text = waterTime)
-
-    harryCapshotDisplay.configure(text = setToDisplay.harry.displayCapshot)
-    harryLastLimbBreakTimeDisplay.configure(text = setToDisplay.harry.displayLastLimbTime)
-    harryLimbMedianDisplay.configure(text = setToDisplay.harry.displayMedian)
-
-    for i in range(0, len(setToDisplay.harry.limbsForMedian)):
-        setToDisplay.harry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.harry.limbsForMedian[i]))
-
-    if setToDisplay.harry.lastLimbTimeSeconds == 0:
-        harryLastLimbBreakTimeDisplay.configure(text_color = "white")
-    elif setToDisplay.harry.lastLimbTimeSeconds < redRunBreakpoint:
-        harryLastLimbBreakTimeDisplay.configure(text_color = redAverageColor)
-    elif setToDisplay.harry.lastLimbTimeSeconds >= redRunBreakpoint and setToDisplay.harry.lastLimbTimeSeconds < pinkRunBreakpoint:
-        harryLastLimbBreakTimeDisplay.configure(text_color = pinkAverageColor)
-    else:
-        harryLastLimbBreakTimeDisplay.configure(text_color = purpleAverageColor)
-
-# Options menu for selecting which set to display
+#ui commands
+#changes current set to display
 def changeSetDisplay(optionName):
     global fullNight
     global currentSetShown
@@ -220,23 +95,174 @@ def changeSetDisplay(optionName):
     displayGarry(setToDisplay)
     displayHarry(setToDisplay)
 
+#set previous set to display
+def previousSet():
+    global currentSetShown
+    
+    if currentSetShown > 0:
+        currentSetShown -= 1
+        changeSetDisplay(str(currentSetShown))
+    return
+
+#set next set to display
+def nextSet():
+    global currentSetShown
+    
+    if currentSetShown < currentSetNr:
+        currentSetShown += 1
+        changeSetDisplay(str(currentSetShown))
+    return
+
+def restartParsing():
+    global stopParsingButton
+    global restartParsingButton
+
+    restartParsingButton.destroy()
+
+    stopParsingButton = customtkinter.CTkButton(app, text="Stop", font=("Arial", 20), width = 100, height = 40, command = stopParsing)
+    stopParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
+
+    app.after(200, startParsing)
+
+def stopParsing():
+    global stopParsingBool
+    global stopParsingButton
+    global restartParsingButton
+
+    stopParsingBool = True
+
+    stopParsingButton.destroy()
+
+    restartParsingButton = customtkinter.CTkButton(app, text="Restart", font=("Arial", 20), width = 100, height = 40, command = restartParsing)
+    restartParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
+
+#transform to overlay
+def toOverlay():
+    #hide ui elements
+    leftFrame.place_forget()
+    rightFrame.place_forget()
+
+    previousSetButton.place_forget()
+    nextSetButton.place_forget()
+
+    setsOptionMenuLabel.place_forget()
+    setsOptionMenu.place_forget()
+
+    stopParsingButton.place_forget()
+
+    globalOverviewFrame.place_forget()
+
+    toOverlayButton.place_forget()
+
+    #transform window
+    fullSetFrame.place_forget()
+    fullSetFrame.place(relx = 0, rely = 0)
+    fullSetFrame.configure(width = 450, height = 300)
+    app.geometry("450x300+0+500")
+
+    app.wm_attributes("-topmost", True)
+    app.overrideredirect(True)
+
+    GWL_EXSTYLE = -20
+    WS_EX_LAYERED = 0x80000
+    WS_EX_CLICKTHROUGH = 0x400000
+    hwnd = app.winfo_id()
+    style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    style |= WS_EX_LAYERED | WS_EX_CLICKTHROUGH
+    ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+    ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 2, 2, 1)
+
+
+    finalizeTimeDisplay.configure(font = ("Arial", 10))
+
+    finalizeTimeTextDisplay.configure(font = ("Arial", 10))
+
+    nighttimeTimeTextDisplay.configure(font = ("Arial", 10))
+    nighttimeTimeDisplay.configure(font = ("Arial", 10))
+
+    terryFirstLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    terryFirstLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    terryLastLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    terryLastLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    terryCapshotTextDisplay.configure(font = ("Arial", 10))
+    terryCapshotDisplay.configure(font = ("Arial", 10))
+    terryCapshotTimeTextDisplay.configure(font = ("Arial", 10))
+    terryCapshotTimeDisplay.configure(font = ("Arial", 10))
+    terryLimbsTextDisplay.configure(font = ("Arial", 10))
+    terryLimb1Display.configure(font = ("Arial", 10))
+    terryLimb2Display.configure(font = ("Arial", 10))
+    terryLimb3Display.configure(font = ("Arial", 10))
+    terryLimbMedianTextDisplay.configure(font = ("Arial", 10))
+    terryLimbMedianDisplay.configure(font = ("Arial", 10))
+
+    garryWaterLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    garryWaterLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    garryLastLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    garryLastLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    garryCapshotTextDisplay.configure(font = ("Arial", 10))
+    garryCapshotDisplay.configure(font = ("Arial", 10))
+    garryLimbsTextDisplay.configure(font = ("Arial", 10))
+    garryLimb1Display.configure(font = ("Arial", 10))
+    garryLimb2Display.configure(font = ("Arial", 10))
+    garryLimb3Display.configure(font = ("Arial", 10))
+    garryLimb4Display.configure(font = ("Arial", 10))
+    garryLimb5Display.configure(font = ("Arial", 10))
+    garryLimbMedianTextDisplay.configure(font = ("Arial", 10))
+    garryLimbMedianDisplay.configure(font = ("Arial", 10))
+    garryShrineTimeTextDisplay.configure(font = ("Arial", 10))
+    garryShrineTimeDisplay.configure(font = ("Arial", 10))
+    garryShardInsertsTextDisplay.configure(font = ("Arial", 10))
+    garryShardInsertsDisplay.configure(font = ("Arial", 10))
+
+    harryWaterLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    harryWaterLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    harryLastLimbBreakTextDisplay.configure(font = ("Arial", 10))
+    harryLastLimbBreakTimeDisplay.configure(font = ("Arial", 10))
+    harryCapshotTextDisplay.configure(font = ("Arial", 10))
+    harryCapshotDisplay.configure(font = ("Arial", 10))
+    harryLimbsTextDisplay.configure(font = ("Arial", 10))
+    harryLimb1Display.configure(font = ("Arial", 10))
+    harryLimb2Display.configure(font = ("Arial", 10))
+    harryLimb3Display.configure(font = ("Arial", 10))
+    harryLimb4Display.configure(font = ("Arial", 10))
+    harryLimb5Display.configure(font = ("Arial", 10))
+    harryLimbMedianTextDisplay.configure(font = ("Arial", 10))
+    harryLimbMedianDisplay.configure(font = ("Arial", 10))
+    harryShrineTimeTextDisplay.configure(font = ("Arial", 10))
+    harryShrineTimeDisplay.configure(font = ("Arial", 10))
+    harryShardInsertsTextDisplay.configure(font = ("Arial", 10))
+    harryShardInsertsDisplay.configure(font = ("Arial", 10))
+
+# System Settings
+customtkinter.set_appearance_mode("Dark")
+customtkinter.set_default_color_theme("blue")
+customtkinter.deactivate_automatic_dpi_awareness()
+
+# ui app
+app = customtkinter.CTk()
+app.geometry("960x960")
+app.title("FATE")
+
+# app.iconbitmap("fateIcon.ico")
+
+# sealLogo = Image.open("fateLogo.png")
+# sealImage = customtkinter.CTkImage(sealLogo, sealLogo, size=(300, 130))
+# sealLabel = customtkinter.CTkLabel(app, image = sealImage, fg_color = "transparent", bg_color = "transparent", text = "")
+# sealLabel.place(x = 820, y = 70)
+
+fullSetFrame = customtkinter.CTkFrame(app, width = app._current_width - 20, height = app._current_height/2 - 10)
+fullSetFrame.pack_propagate(0)
+fullSetFrame.place(relx = .5, rely = .35, anchor = tkinter.N)
+
+globalOverviewFrame = customtkinter.CTkFrame(app, width = app._current_width - 20, height = app._current_height/8 - 10)
+globalOverviewFrame.pack_propagate(0)
+globalOverviewFrame.place(relx = .5, rely = .85, anchor = tkinter.N)
+
 setsOptionMenuLabel = customtkinter.CTkLabel(app, text = "Select set to show", text_color = textColor, font = ("Arial", 18))
 setsOptionMenuLabel.place(relx = optionsMenuX, rely = optionsMenuY - .03, anchor = tkinter.N)
 setsOptionMenu = customtkinter.CTkOptionMenu(app, values=[], command = changeSetDisplay)
 setsOptionMenu.place(relx = optionsMenuX, rely = optionsMenuY, anchor = tkinter.N)
 
-# limbBreakpointText = customtkinter.CTkLabel(app, text = "Limb Color Breakpoints", text_color = textColor, font = ("Arial", 18))
-# limbBreakpointText.place(relx = limbBreakpointTextX, rely = limbBreakpointInputY - .03, anchor = tkinter.N)
-# limb1Entry = customtkinter.CTkEntry(app, placeholder_text="Red", width = 50)
-# limb1Entry.place(relx = limbBreakpointInput1X, rely = limbBreakpointInputY, anchor = tkinter.N)
-# limb2Entry = customtkinter.CTkEntry(app, placeholder_text="Pink", width = 50)
-# limb2Entry.place(relx = limbBreakpointInput2X, rely = limbBreakpointInputY, anchor = tkinter.N)
-# limb3Entry = customtkinter.CTkEntry(app, placeholder_text="Purple", width = 50)
-# limb3Entry.place(relx = limbBreakpointInput3X, rely = limbBreakpointInputY, anchor = tkinter.N)
-
-
-# Full Set UI elements
-# Host load things
 finalizeTimeTextDisplay = customtkinter.CTkLabel(fullSetFrame, text = "Finalize time", text_color = textColor, font = ("Arial", 18))
 finalizeTimeTextDisplay.place(relx = columnRelValues[4], rely = lineRelValues[0], anchor = tkinter.NW)
 finalizeTimeDisplay = customtkinter.CTkLabel(fullSetFrame, text = "??", text_color = "white", font = ("Arial", 18))
@@ -246,6 +272,39 @@ nighttimeTimeTextDisplay = customtkinter.CTkLabel(fullSetFrame, text = "Nighttim
 nighttimeTimeTextDisplay.place(relx = columnRelValues[4], rely = lineRelValues[2], anchor = tkinter.NW)
 nighttimeTimeDisplay = customtkinter.CTkLabel(fullSetFrame, text = "??", text_color = "white", font = ("Arial", 18))
 nighttimeTimeDisplay.place(relx = columnRelValues[4], rely = lineRelValues[3], anchor = tkinter.NW)
+
+#additionals frames
+leftFrame = customtkinter.CTkFrame(app, width = 300, height = 200)
+leftFrame.pack_propagate(0)
+leftFrame.place(relx = .3, rely = .03, anchor = tkinter.N)
+
+rightFrame = customtkinter.CTkFrame(app, width = 300, height = 200)
+rightFrame.pack_propagate(0)
+rightFrame.place(relx = .7, rely = .03, anchor = tkinter.N)
+
+# Next/Prev sets buttons 
+previousSetButton = customtkinter.CTkButton(app, text="<", font=("Arial", 14), width = 20, height = 20, command = previousSet)
+previousSetButton.place(relx = optionsMenuX - .13, rely = optionsMenuY + .003, anchor = tkinter.N)
+
+nextSetButton = customtkinter.CTkButton(app, text=">", font=("Arial", 14), width = 20, height = 20, command = nextSet)
+nextSetButton.place(relx = optionsMenuX - .1, rely = optionsMenuY + .003, anchor = tkinter.N)
+
+deltaDisplay400 = customtkinter.CTkLabel(leftFrame, text="Delta Time (.400)", text_color="white", font=("Arial", 24))
+deltaDisplay400.place(relx = .5, rely = .17, anchor = tkinter.N)
+deltaDisplayNightime = customtkinter.CTkLabel(leftFrame, text="Delta Time (3.600)", text_color="white", font=("Arial", 24))
+deltaDisplayNightime.place(relx = .5, rely = .32, anchor = tkinter.N)
+
+statusDisplay = customtkinter.CTkLabel(leftFrame, text="Awaiting Status", text_color="cyan", font=("Arial", 40))
+statusDisplay.place(relx = .5, rely = .52, anchor = tkinter.N)
+
+shrineTimeText = customtkinter.CTkLabel(rightFrame, text="Shrine Time", text_color="white", font=("Arial", 28))
+shrineTimeText.place(relx = .5, rely = .22, anchor = tkinter.N)
+shrineTimeDisplay = customtkinter.CTkLabel(rightFrame, text="0.000", text_color="white", font=("Arial", 24))
+shrineTimeDisplay.place(relx = .5, rely = .4, anchor = tkinter.N)
+
+# Stop parsing button
+stopParsingButton = customtkinter.CTkButton(app, text="Stop", font=("Arial", 20), width = 100, height = 40, command = stopParsing)
+stopParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
 
 # Terry
 terryFirstLimbBreakTextDisplay = customtkinter.CTkLabel(fullSetFrame, text = "First Limb Time", text_color = textColor, font = ("Arial", 18))
@@ -391,16 +450,60 @@ globalWaterMedianTextDisplay.place(relx = columnRelValues[3] - .1, rely = .2, an
 globalWaterMedianDisplay = customtkinter.CTkLabel(globalOverviewFrame, text = "??", text_color = textColor, font = ("Arial", 18))
 globalWaterMedianDisplay.place(relx = columnRelValues[3] - .1, rely = .45, anchor = tkinter.NW)
 
+#ui overlay
+toOverlayButton = customtkinter.CTkButton(app, width = 100, height= 40, text = "Overlay", font = ("Arial", 14), command = toOverlay)
+toOverlayButton.place(relx = .7, rely = .273, anchor = tkinter.N)
 
+#ui clear
+def clearLimbTimes():
+    terryLimb1Display.configure(text = "??")
+    terryLimb2Display.configure(text = "??")
+    terryLimb3Display.configure(text = "??")
+    
+    garryLimb1Display.configure(text = "??")
+    garryLimb2Display.configure(text = "??")
+    garryLimb3Display.configure(text = "??")
+    garryLimb4Display.configure(text = "??")
+    garryLimb5Display.configure(text = "??")
+    
+    harryLimb1Display.configure(text = "??")
+    harryLimb2Display.configure(text = "??")
+    harryLimb3Display.configure(text = "??")
+    harryLimb4Display.configure(text = "??")
+    harryLimb5Display.configure(text = "??")
 
+def clearCurrentSet():
+    clearLimbTimes()
 
-seal_light = Image.open("C:/Users/Vlados/Downloads/sealer.png")
-seal_dark = Image.open("C:/Users/Vlados/Downloads/sealer.png")
-sealImage = customtkinter.CTkImage(seal_light, seal_dark, size=(300, 130))
-sealLabel = customtkinter.CTkLabel(app, image = sealImage, fg_color = "transparent", bg_color = "transparent", text = "")
-sealLabel.place(x = 820, y = 70)
+    terryFirstLimbBreakTimeDisplay.configure(text = "??")
+    terryLastLimbBreakTimeDisplay.configure(text = "??")
+    terryCapshotDisplay.configure(text = "??")
+    terryCapshotTimeDisplay.configure(text = "??")
+    terryLimbMedianDisplay.configure(text = "??")
+    finalizeTimeDisplay.configure(text = "??")
+    nighttimeTimeDisplay.configure(text = "??")
+    
+    garryWaterLimbBreakTimeDisplay.configure(text = "??")
+    garryLastLimbBreakTimeDisplay.configure(text = "??")
+    garryCapshotDisplay.configure(text = "??")
+    garryLimbMedianDisplay.configure(text = "??")
+    garryShrineTimeDisplay.configure(text = "??")
+    garryShardInsertsDisplay.configure(text = "??")
 
-# Update global stats
+    harryWaterLimbBreakTimeDisplay.configure(text = "??")
+    harryLastLimbBreakTimeDisplay.configure(text = "??")
+    harryCapshotDisplay.configure(text = "??")
+    harryLimbMedianDisplay.configure(text = "??")
+    harryShrineTimeDisplay.configure(text = "??")
+    harryShardInsertsDisplay.configure(text = "??")
+
+def clearGlobalStat():
+    globalRunAvgDisplay.configure(text = "??")
+    globalCapshotMedianDisplay.configure(text = "??")
+    globalLimbMedianDisplay.configure(text = "??")
+    globalWaterMedianDisplay.configure(text = "??")
+
+# ui updates
 def updateGlobalAvg():
     averageInSeconds = sum(fullNight.runTimesForAverage)/len(fullNight.runTimesForAverage)
     timeVal = str(datetime.timedelta(seconds = averageInSeconds))[2:11]
@@ -429,6 +532,95 @@ def updateGlobalWaterMed():
     medianValue = "{:.3f}".format(statistics.median(fullNight.watersForMedian))
     
     globalWaterMedianDisplay.configure(text = medianValue)
+
+#ui display
+def displayTerry(setToDisplay):
+    clearLimbTimes()
+
+    finalizeTimeDisplay.configure(text = setToDisplay.loadIn.displayFinalize)
+    nighttimeTimeDisplay.configure(text = setToDisplay.loadIn.displayItsNightitme)
+
+    if float(setToDisplay.loadIn.displayFinalize) == 0:
+        finalizeTimeDisplay.configure(text_color = "white")
+    elif float(setToDisplay.loadIn.displayFinalize) < finalizeTransitionBreakpoint:
+        finalizeTimeDisplay.configure(text_color = "red")
+    else:
+        finalizeTimeDisplay.configure(text_color = "white")
+
+    if float(setToDisplay.loadIn.displayItsNightitme) == 0:
+        nighttimeTimeDisplay.configure(text_color = "white")
+    elif float(setToDisplay.loadIn.displayItsNightitme) > nighttimeBreakpoint:
+        nighttimeTimeDisplay.configure(text_color = "red")
+    else:
+        nighttimeTimeDisplay.configure(text_color = "white")
+
+    firstLimbText = str(setToDisplay.terry.displayFirstLimb) + " [" + str(setToDisplay.terry.displayTimeToVuln) + "]"
+    terryFirstLimbBreakTimeDisplay.configure(text = firstLimbText)
+
+    terryCapshotDisplay.configure(text = setToDisplay.terry.displayCapshot)
+    terryCapshotTimeDisplay.configure(text = setToDisplay.terry.displayCapshotRealtime)
+    terryLastLimbBreakTimeDisplay.configure(text = setToDisplay.terry.displayLastLimbTime)
+
+    for i in range(0, len(setToDisplay.terry.limbsForMedian)):
+        setToDisplay.terry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.terry.limbsForMedian[i]))
+      
+    terryLimbMedianDisplay.configure(text = setToDisplay.terry.displayMedian)
+
+def displayGarry(setToDisplay):
+    garryShrineTimeDisplay.configure(text = setToDisplay.garry.displayShrineTime)
+
+    if setToDisplay.garry.displayShardTwoTime != 0:
+        shardTimes = str(setToDisplay.garry.displayShardOneTime) + "   " + str(setToDisplay.garry.displayShardTwoTime)
+    else:
+        shardTimes = str(setToDisplay.garry.displayShardOneTime)
+
+    garryShardInsertsDisplay.configure(text = shardTimes)
+
+    waterTime = str(setToDisplay.garry.displayWaterTime) + " + " + str(setToDisplay.garry.displayspawnDelay)
+    garryWaterLimbBreakTimeDisplay.configure(text = waterTime)
+
+    garryCapshotDisplay.configure(text = setToDisplay.garry.displayCapshot)
+    garryLastLimbBreakTimeDisplay.configure(text = setToDisplay.garry.displayLastLimbTime)
+    garryLimbMedianDisplay.configure(text = setToDisplay.garry.displayMedian)
+
+    for i in range(0, len(setToDisplay.garry.limbsForMedian)):
+        setToDisplay.garry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.garry.limbsForMedian[i]))
+
+def displayHarry(setToDisplay):
+    harryShrineTimeDisplay.configure(text = setToDisplay.harry.displayShrineTime)
+
+    if setToDisplay.harry.displayShardTwoTime != 0:
+        shardTimes = str(setToDisplay.harry.displayShardOneTime) + "   " + str(setToDisplay.harry.displayShardTwoTime)
+    else:
+        shardTimes = str(setToDisplay.harry.displayShardOneTime)
+
+    harryShardInsertsDisplay.configure(text = shardTimes)
+
+    waterTime = str(setToDisplay.harry.displayWaterTime) + " + " + str(setToDisplay.harry.displayspawnDelay)
+    harryWaterLimbBreakTimeDisplay.configure(text = waterTime)
+
+    harryCapshotDisplay.configure(text = setToDisplay.harry.displayCapshot)
+    harryLastLimbBreakTimeDisplay.configure(text = setToDisplay.harry.displayLastLimbTime)
+    harryLimbMedianDisplay.configure(text = setToDisplay.harry.displayMedian)
+
+    for i in range(0, len(setToDisplay.harry.limbsForMedian)):
+        setToDisplay.harry.limbDisplays[i + 1].configure(text = "{:.3f}".format(setToDisplay.harry.limbsForMedian[i]))
+
+    if setToDisplay.harry.lastLimbTimeSeconds == 0:
+        harryLastLimbBreakTimeDisplay.configure(text_color = "white")
+    elif setToDisplay.harry.lastLimbTimeSeconds < redRunBreakpoint:
+        harryLastLimbBreakTimeDisplay.configure(text_color = redAverageColor)
+    elif setToDisplay.harry.lastLimbTimeSeconds >= redRunBreakpoint and setToDisplay.harry.lastLimbTimeSeconds < pinkRunBreakpoint:
+        harryLastLimbBreakTimeDisplay.configure(text_color = pinkAverageColor)
+    else:
+        harryLastLimbBreakTimeDisplay.configure(text_color = purpleAverageColor)
+
+#ui funcs
+def terryGettingUp():
+    terryCapshotTextDisplay.configure(text = "Capshot Time!")
+
+def garryGettingUp():
+    garryCapshotDisplay.configure(text = "Capshot Time!")
 
 # Eido related classes
 class LoadIn:
@@ -465,7 +657,6 @@ class Terry:
         self.displayLastLimbTime = 0
         self.displayMedian = 0
         
-
 class Garry:
     def __init__(self) -> None:
         
@@ -478,6 +669,7 @@ class Garry:
         self.waterLimbBreakTime = 0
         self.capshotTime = 0
         self.lastLimbTimeSeconds = 0
+        self.timer_task_id = ''
 
         self.limbs = []
         self.limbsForMedian = []
@@ -510,6 +702,7 @@ class Harry:
         self.waterLimbBreakTime = 0
         self.capshotTime = 0
         self.lastLimbTimeSeconds = 0
+        self.timer_task_id = ''
 
         self.limbs = []
         self.limbsForMedian = []
@@ -554,8 +747,6 @@ class FullNight:
         self.limbsForMedian = []
         self.watersForMedian = []
 
-fullNight = None
-
 def startParsing():
     global file
     global fullNight
@@ -563,7 +754,7 @@ def startParsing():
     global currentSet
     global currentLimb
     global stopParsingBool
-    global setsOptionMenu
+    # global setsOptionMenu
     global fileRollbackPosition
     global fileRollbackPositionSmall
     
@@ -572,9 +763,9 @@ def startParsing():
     currentLimb = 0
     stopParsingBool = False
 
-    setsOptionMenu.destroy()
-    setsOptionMenu = customtkinter.CTkOptionMenu(app, values=[], command = changeSetDisplay)
-    setsOptionMenu.place(relx = optionsMenuX, rely = optionsMenuY, anchor = tkinter.N)
+    # setsOptionMenu.destroy()
+    # setsOptionMenu = customtkinter.CTkOptionMenu(app, values=[], command = changeSetDisplay)
+    # setsOptionMenu.place(relx = optionsMenuX, rely = optionsMenuY, anchor = tkinter.N)
 
     clearCurrentSet()
     clearGlobalStat()
@@ -590,134 +781,6 @@ def startParsing():
     fileRollbackPositionSmall = file.tell()
 
     app.after(500, newSet(False, 0))
-
-
-# More UI Elements
-leftFrame = customtkinter.CTkFrame(app, width = 300, height = 200)
-leftFrame.pack_propagate(0)
-leftFrame.place(relx = .3, rely = .03, anchor = tkinter.N)
-
-rightFrame = customtkinter.CTkFrame(app, width = 300, height = 200)
-rightFrame.pack_propagate(0)
-rightFrame.place(relx = .7, rely = .03, anchor = tkinter.N)
-
-deltaDisplay400 = customtkinter.CTkLabel(leftFrame, text="Delta Time (.400)", text_color="white", font=("Arial", 24))
-deltaDisplay400.place(relx = .5, rely = .17, anchor = tkinter.N)
-deltaDisplayNightime = customtkinter.CTkLabel(leftFrame, text="Delta Time (3.600)", text_color="white", font=("Arial", 24))
-deltaDisplayNightime.place(relx = .5, rely = .32, anchor = tkinter.N)
-
-statusDisplay = customtkinter.CTkLabel(leftFrame, text="Awaiting Status", text_color="cyan", font=("Arial", 40))
-statusDisplay.place(relx = .5, rely = .52, anchor = tkinter.N)
-
-shrineTimeText = customtkinter.CTkLabel(rightFrame, text="Shrine Time", text_color="white", font=("Arial", 28))
-shrineTimeText.place(relx = .5, rely = .22, anchor = tkinter.N)
-shrineTimeDisplay = customtkinter.CTkLabel(rightFrame, text="0.000", text_color="white", font=("Arial", 24))
-shrineTimeDisplay.place(relx = .5, rely = .4, anchor = tkinter.N)
-
-restartParsingButton = None
-stopParsingButton = None
-
-previousSetButton = None
-nextSetButton = None
-currentSetShown = 0
-
-def previousSet():
-    global currentSetShown
-    
-    if currentSetShown > 0:
-        currentSetShown -= 1
-        changeSetDisplay(str(currentSetShown))
-    return
-
-def nextSet():
-    global currentSetShown
-    
-    if currentSetShown < currentSetNr:
-        currentSetShown += 1
-        changeSetDisplay(str(currentSetShown))
-    return
-
-# Next/Prev sets buttons 
-previousSetButton = customtkinter.CTkButton(
-    app,
-    text="<",
-    font=("Arial", 14),
-    width = 20,
-    height = 20,
-    command = previousSet
-)
-previousSetButton.place(relx = optionsMenuX - .13, rely = optionsMenuY + .003, anchor = tkinter.N)
-
-nextSetButton = customtkinter.CTkButton(
-    app,
-    text=">",
-    font=("Arial", 14),
-    width = 20,
-    height = 20,
-    command = nextSet
-)
-nextSetButton.place(relx = optionsMenuX - .1, rely = optionsMenuY + .003, anchor = tkinter.N)
-
-def eidoGettingUp():
-    terryCapshotTextDisplay.configure(text = "Capshot Time!")
-
-
-def stopParsing():
-    global stopParsingBool
-    global stopParsingButton
-    global restartParsingButton
-
-    stopParsingBool = True
-
-    stopParsingButton.destroy()
-
-    restartParsingButton = customtkinter.CTkButton(app, text="Restart", font=("Arial", 20), width = 100, height = 40, command = restartParsing)
-    restartParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
-
-
-def restartParsing():
-    global stopParsingButton
-    global restartParsingButton
-
-    restartParsingButton.destroy()
-
-    stopParsingButton = customtkinter.CTkButton(app, text="Stop", font=("Arial", 20), width = 100, height = 40, command = stopParsing)
-    stopParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
-
-    app.after(200, startParsing)
-
-# Stop parsing button
-stopParsingButton = customtkinter.CTkButton(
-    app,
-    text="Stop",
-    font=("Arial", 20),
-    width = 100,
-    height = 40,
-    command = stopParsing
-)
-stopParsingButton.place(relx = stopParsingButtonX, rely = stopParsingButtonY, anchor = tkinter.N)
-
-# Search String constants
-searchHostEntering = "EidolonMP.lua: Host entering plains with MissionInfo:"
-searchFinalizeTransition = "EidolonMP.lua: EIDOLONMP: Finalize Eidolon transition"
-searchItsNightime = "TeralystEncounter.lua: It's nighttime!"
-
-searchEidoCaptured = "TeralystAvatarScript.lua: Teralyst Captured"
-searchEidoKilled = "TeralystAvatarScript.lua: Teralyst Killed"
-
-searchTeralystSpawned = "TeralystEncounter.lua: Teralyst spawned"
-searchTeralystNotSpawning = ["TeralystEncounter.lua: Teralyst didn't spawn, but should have", "TeralystEncounter.lua: Couldn't find any teralyst spawns, so not spawning one."]
-searchSongComplete = "TeralystAvatarScript.lua: Swan Song Complete"
-searchWeakpointDestroyed = "TeralystAvatarScript.lua: Weakpoint Destroyed"
-
-searchWaterEidoSpawn = "Eidolon spawning SUCCESS"
-
-searchLootDrop = "SnapPickupToGround.lua: Snapping pickup to ground (DefaultArcanePickup)"
-searchShrineEnabled = "TeralystEncounter.lua: Shrine enabled"
-searchShardOne = "TeralystEncounter.lua: A shard has been put in the Eidolon Shrine. Shards Consumed = 1"
-searchShardTwo = "TeralystEncounter.lua: A shard has been put in the Eidolon Shrine. Shards Consumed = 2"
-
-searchHostUnload = "EidolonMP.lua: EIDOLONMP: Level fully destroyed"
 
 def newSet(isDirectToPlains, nightTime):
     global currentLimb
@@ -742,14 +805,11 @@ def newSet(isDirectToPlains, nightTime):
     fullNight.sets.append(currentSet)
 
     # Update options menu with new Set
-    currOptions = setsOptionMenu._values
-    setsOptionMenu.destroy()
-    
+    currOptions = setsOptionMenu._values    
     stringSetNumber = str(currentSetNr)
     currOptions.append(stringSetNumber)
 
-    setsOptionMenu = customtkinter.CTkOptionMenu(app, values = currOptions, command = changeSetDisplay)
-    setsOptionMenu.place(relx = optionsMenuX, rely = optionsMenuY, anchor = tkinter.N)
+    setsOptionMenu.configure(values = currOptions)
 
     changeSetDisplay(stringSetNumber)
 
@@ -920,9 +980,6 @@ def scanFinalizeAndNightime():
         fileRollbackPosition = file.tell()
         app.after(sleepBetweenCalls, terryScanning)
 
-def eidoGettingUp():
-    terryCapshotDisplay.configure(text = "Getting Up!")
-
 def terryScanning():
     global currentLimb
     global currentSet
@@ -1029,7 +1086,7 @@ def terryScanning():
                     terryLastLimbBreakTimeDisplay.configure(text = timeVal)
                     currentSet.terry.displayLastLimbTime = timeVal
 
-                    currentSet.terry.timer_task_id = app.after(37000, eidoGettingUp)
+                    currentSet.terry.timer_task_id = app.after(37000, terryGettingUp)
 
                 # Update median
                 medianValue = "{:.3f}".format(statistics.median(currentSet.terry.limbsForMedian))
@@ -1123,7 +1180,6 @@ def terryScanning():
         currentLimb = 0
         fileRollbackPosition = file.tell()
         app.after(sleepBetweenCalls, garryScanning)
-
 
 def garryScanning():
     global currentLimb
@@ -1225,7 +1281,6 @@ def garryScanning():
                     currentSet.garry.displayspawnDelay = spawnDelay
                     garryWaterLimbBreakTimeDisplay.configure(text = waterValToDisplay + " + " + spawnDelay)
 
-
             # Water limb break
             elif currentLimb == 0 and searchWeakpointDestroyed in line:
                 try:
@@ -1293,6 +1348,8 @@ def garryScanning():
                     garryLastLimbBreakTimeDisplay.configure(text = timeVal)
                     currentSet.garry.displayLastLimbTime = timeVal
 
+                    currentSet.garry.timer_task_id = app.after(37000, garryGettingUp)
+
                 # Update median
                 medianValue = "{:.3f}".format(statistics.median(currentSet.garry.limbsForMedian))
                 garryLimbMedianDisplay.configure(text = medianValue)
@@ -1304,6 +1361,9 @@ def garryScanning():
 
             # Capture 
             elif searchEidoCaptured in line:
+                app.after_cancel(currentSet.garry.timer_task_id)
+                garryCapshotDisplay.configure(text = "??")
+
                 if len(currentSet.garry.limbs) < 6:
                     file.seek(fileRollbackPosition)
                     for limb in currentSet.garry.limbs:
@@ -1335,6 +1395,9 @@ def garryScanning():
 
             # Kill
             elif searchEidoKilled in line:
+                app.after_cancel(currentSet.garry.timer_task_id)
+                garryCapshotDisplay.configure(text = "??")
+
                 reset = True
                 break
 
@@ -1606,21 +1669,17 @@ def harryScanning():
     elif not stopParsingBool:
         # Update options menu with time in current set
         currOptions = setsOptionMenu._values
-        setsOptionMenu.destroy()
-        
+                
         stringSetNumber = str(currentSetNr)
         newName = stringSetNumber + " - " + str(currentSet.harry.displayLastLimbTime)
+
         currOptions.pop()
         currOptions.append(newName)
 
-        setsOptionMenu = customtkinter.CTkOptionMenu(app, values = currOptions, command = changeSetDisplay)
-        setsOptionMenu.place(relx = optionsMenuX, rely = optionsMenuY, anchor = tkinter.N)
+        setsOptionMenu.configure(values = currOptions)
         setsOptionMenu.set(newName)
 
         app.after(sleepBetweenCalls, newSet(False, 0))
-
-
-
 
 # Run parser function
 app.after(500, startParsing)
